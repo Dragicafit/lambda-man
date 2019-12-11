@@ -1,6 +1,6 @@
 {
     "members" : [
-	{ "name" : ""; "firstname" : ""; "email" : "" },
-	{ "name" : ""; "firstname" : ""; "email" : "" }
+	{ "name" : "Berthel", "firstname" : "Antoine", "email" : "antoine.berthel@etu.univ-paris-diderot.fr" },
+	{ "name" : "Herbert", "firstname" : "Damien", "email" : "damien.herbert@etu.univ-paris-diderot.fr" }
     ]
 }
