@@ -123,6 +123,7 @@ let loop visualize slowdown world clients =
     | None ->
        world
     | Some tree ->
+       if tree.branches <= 0 then world else
        let tree' = { tree with branches = tree.branches - 1 } in
        let world = update_tree world tree tree' in
        let robot_score = robot.robot_score + 1 in
