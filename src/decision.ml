@@ -228,27 +228,27 @@ let shortest_path graph source target : path =
 
 *)
 let plan visualize observation memory =
-   let trees_with_branches = 
    match memory.known_world with
-      | Some known_world -> List.filter (fun tree -> tree.branches>0) known_world.trees
-      | None -> []
-   in
-   match memory.objective with
-   | Initializing ->
-   (match memory.known_world with
-      | Some known_world -> { memory with targets = tree_positions trees_with_branches; objective = GoingTo (memory.targets, memory.targets) }
-      | None -> memory)
-   | Chopping ->
-   (match tree_at trees_with_branches observation.position with
-      | Some tree -> memory
-      | None -> { memory with targets = tree_positions trees_with_branches; objective = GoingTo (memory.targets, memory.targets) })
-   | GoingTo (path, path2) ->
-   (match memory.known_world with
-      | Some known_world ->
-         (match tree_at trees_with_branches observation.position with
-         | Some _ -> { memory with objective = Chopping }
-         | None -> { memory with targets = tree_positions known_world.trees; objective = GoingTo (memory.targets, memory.targets) })
-      | None -> memory)
+   | None -> memory
+   | Some known_world ->
+      (match memory.objective with
+      | Initializing ->
+         let trees_with_branches = List.filter (fun tree -> tree.branches>0) known_world.trees in
+         { memory with targets = (tree_positions trees_with_branches)@[observation.spaceship]; objective = GoingTo ([List.hd (tree_positions trees_with_branches)], [List.hd (tree_positions trees_with_branches)]) }
+      | Chopping ->
+         (match tree_at known_world.trees observation.position with
+         | Some tree ->
+            if tree.branches>0
+            then memory
+            else { memory with targets = List.tl memory.targets; objective = GoingTo ([List.hd memory.targets], [List.hd memory.targets]) }
+         | None -> { memory with objective = GoingTo ([List.hd memory.targets], [List.hd memory.targets])  })
+      | GoingTo (path, path2) ->
+         if close (List.hd path) observation.position 1.
+         then 
+            (if List.length path <= 1
+            then { memory with objective = Chopping }
+            else { memory with objective = GoingTo (List.tl path, path2) })
+         else memory)
 
 (**
 
@@ -272,7 +272,9 @@ let next_action visualize observation memory =
    | Initializing -> Move (Space.angle_of_float 0., observation.max_speed), memory
    | Chopping -> ChopTree, memory
    | GoingTo (path, _) -> (match path with 
-      | pos::_ -> Move (Space.angle_of_float (atan ((y_ observation.position-.y_ pos)/.(x_ observation.position-.x_ pos))), observation.max_speed), memory
+      | pos::_ -> 
+   let Distance d =dist2 pos observation.position in
+         Move (Space.angle_of_float (atan2 (y_ pos -. y_ observation.position) (x_ pos -. x_ observation.position)), if d>5. then observation.max_speed else Space.speed_of_float 0.1 ), memory
       | [] -> Move (Space.angle_of_float 0., observation.max_speed), memory)
 
 (**
