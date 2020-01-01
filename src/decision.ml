@@ -228,8 +228,27 @@ let shortest_path graph source target : path =
 
 *)
 let plan visualize observation memory =
-  memory (* Students, this is your job! *)
-
+   let trees_with_branches = 
+   match memory.known_world with
+      | Some known_world -> List.filter (fun tree -> tree.branches>0) known_world.trees
+      | None -> []
+   in
+   match memory.objective with
+   | Initializing ->
+   (match memory.known_world with
+      | Some known_world -> { memory with targets = tree_positions trees_with_branches; objective = GoingTo (memory.targets, memory.targets) }
+      | None -> memory)
+   | Chopping ->
+   (match tree_at trees_with_branches observation.position with
+      | Some tree -> memory
+      | None -> { memory with targets = tree_positions trees_with_branches; objective = GoingTo (memory.targets, memory.targets) })
+   | GoingTo (path, path2) ->
+   (match memory.known_world with
+      | Some known_world ->
+         (match tree_at trees_with_branches observation.position with
+         | Some _ -> { memory with objective = Chopping }
+         | None -> { memory with targets = tree_positions known_world.trees; objective = GoingTo (memory.targets, memory.targets) })
+      | None -> memory)
 
 (**
 
@@ -249,7 +268,12 @@ let plan visualize observation memory =
 
 *)
 let next_action visualize observation memory =
-  Move (Space.angle_of_float 0., Space.speed_of_float 1.), memory
+   match memory.objective with
+   | Initializing -> Move (Space.angle_of_float 0., observation.max_speed), memory
+   | Chopping -> ChopTree, memory
+   | GoingTo (path, _) -> (match path with 
+      | pos::_ -> Move (Space.angle_of_float (atan ((y_ observation.position-.y_ pos)/.(x_ observation.position-.x_ pos))), observation.max_speed), memory
+      | [] -> Move (Space.angle_of_float 0., observation.max_speed), memory)
 
 (**
 
