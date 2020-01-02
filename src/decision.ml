@@ -198,7 +198,38 @@ let discover visualize observation memory =
 
 *)
 let visibility_graph observation memory =
-  Graph.empty (* Students, this is your job! *)
+   {memory with graph = 
+   match memory.known_world with
+   | Some known_world ->
+      (let hell_polygons = hell known_world in
+      let hell_sommets = List.flatten (List.map (fun p->Space.vertices p) (hell known_world)) in
+      let sommets = observation.position :: observation.spaceship :: tree_positions observation.trees @ hell_sommets in
+      Graph.make sommets
+      (List.flatten (List.map
+      (fun sommet1 ->
+         List.filter_map
+         (fun sommet2 ->
+            let segment = (sommet1, sommet2) in
+            if List.for_all
+            (fun hell_polygon ->
+               let i = ref 0 in
+               List.for_all
+               (fun hell_segment ->
+                  let (hell1, hell2) = hell_segment in
+                  not (segment_intersects segment hell_segment) || hell_segment = segment || if !i<2 then (i:=!i+1;hell1 = sommet1 || hell1 = sommet2 || hell2 = sommet1 || hell2 = sommet2) else false
+               )
+               (polygon_segments hell_polygon)
+            )
+            hell_polygons
+            then let Distance d = dist2 sommet1 sommet2 in
+            Some (sommet1, sommet2, d)
+            else None
+         )
+         sommets
+      )
+      sommets
+      )))
+   | None -> Graph.empty}
 
 
 (**
@@ -228,27 +259,25 @@ let shortest_path graph source target : path =
 
 *)
 let plan visualize observation memory =
-   match memory.known_world with
-   | None -> memory
-   | Some known_world ->
-      (match memory.objective with
-      | Initializing ->
-         let trees_with_branches = List.filter (fun tree -> tree.branches>0) known_world.trees in
-         { memory with targets = (tree_positions trees_with_branches)@[observation.spaceship]; objective = GoingTo ([List.hd (tree_positions trees_with_branches)], [List.hd (tree_positions trees_with_branches)]) }
-      | Chopping ->
-         (match tree_at known_world.trees observation.position with
-         | Some tree ->
-            if tree.branches>0
-            then memory
-            else { memory with targets = List.tl memory.targets; objective = GoingTo ([List.hd memory.targets], [List.hd memory.targets]) }
-         | None -> { memory with objective = GoingTo ([List.hd memory.targets], [List.hd memory.targets])  })
-      | GoingTo (path, path2) ->
-         if close (List.hd path) observation.position 1.
-         then 
-            (if List.length path <= 1
-            then { memory with objective = Chopping }
-            else { memory with objective = GoingTo (List.tl path, path2) })
-         else memory)
+   Visualizer.show_graph memory.graph;
+   (match memory.objective with
+   | Initializing ->
+      let trees_with_branches = List.filter (fun tree -> tree.branches>0) observation.trees in
+      { memory with targets = (tree_positions trees_with_branches)@[observation.spaceship]; objective = GoingTo ([List.hd (tree_positions trees_with_branches)], [List.hd (tree_positions trees_with_branches)]) }
+   | Chopping ->
+      (match tree_at observation.trees observation.position with
+      | Some tree ->
+         if tree.branches>0
+         then memory
+         else { memory with targets = List.tl memory.targets; objective = GoingTo ([List.hd memory.targets], [List.hd memory.targets]) }
+      | None -> { memory with objective = GoingTo ([List.hd memory.targets], [List.hd memory.targets])  })
+   | GoingTo (path, path2) ->
+      if close (List.hd path) observation.position 1.
+      then 
+         (if List.length path <= 1
+         then { memory with objective = Chopping }
+         else { memory with objective = GoingTo (List.tl path, path2) })
+      else memory)
 
 (**
 
@@ -273,7 +302,7 @@ let next_action visualize observation memory =
    | Chopping -> ChopTree, memory
    | GoingTo (path, _) -> (match path with 
       | pos::_ -> 
-   let Distance d =dist2 pos observation.position in
+   let Distance d = dist2 pos observation.position in
          Move (Space.angle_of_float (atan2 (y_ pos -. y_ observation.position) (x_ pos -. x_ observation.position)), if d>5. then observation.max_speed else Space.speed_of_float 0.1 ), memory
       | [] -> Move (Space.angle_of_float 0., observation.max_speed), memory)
 
@@ -285,5 +314,6 @@ let next_action visualize observation memory =
 *)
 let decide visualize observation memory : action * memory =
   let memory = discover visualize observation memory in
+  let memory = visibility_graph observation memory in
   let memory = plan visualize observation memory in
   next_action visualize observation memory

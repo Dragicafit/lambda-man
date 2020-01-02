@@ -150,6 +150,8 @@ val update_robot : t -> robot -> robot -> t
 (** Teste si une position est dans une bouche de l'enfer. *)
 val inside_hell : t -> Space.position -> bool
 
+val hell : t -> kind Space.polygon list
+
 (** Renvoie tous les segments des bouches de l'enfer. *)
 val hell_segments : t -> Space.segment list
 
