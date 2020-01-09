@@ -255,8 +255,82 @@ let visibility_graph observation memory =
    aller d'une source à une cible dans le graphe.
 
 *)
-let shortest_path graph source target : path =
-  [] (* Students, this is your job! *)
+let shortest_path graph source target trees : path =
+   let sort (a,b) = if a<b then (a,b) else (b,a) in
+   let n = List.length (Graph.edges graph)/2 in
+   let w = Hashtbl.create n in
+   List.iter
+   (fun u ->
+      let (i,j,_) = u in
+      Hashtbl.replace w (sort (i,j)) (let (_,_,poids) = u in (poids, None))
+   )
+   (Graph.edges graph);
+   List.iter
+   (fun k ->
+      List.iter
+      (fun segment ->
+         let (i,j,_) = segment in
+         if Hashtbl.find_opt w (sort (i,k)) <> None && Hashtbl.find_opt w (sort (k,j)) <> None
+         then
+            (let (ij,_) = (Hashtbl.find w (sort (i,j))) in
+            let (ik,_) = Hashtbl.find w (sort (i,k)) in
+            let (kj,_) = Hashtbl.find w (sort (k,j)) in
+            if ik+.kj<ij
+            then Hashtbl.replace w (sort (i,j)) (ik+.kj, Some k)
+            else ())
+         else ()
+      )
+      (Graph.edges graph)
+   )
+   (Graph.nodes graph);
+   let rec construction_path source2 =
+      let min = ref Float.infinity in
+      let min_sommet = ref None in
+      Hashtbl.iter
+      (fun segment y ->
+         let (d, deviation) = y in
+         let (sommet1, sommet2) = segment in
+         let sommet_mem = ref sommet2 in
+         if (sommet1 = source2 || (sommet_mem:=sommet1; sommet2 = source2)) && !min > d && (tree_at trees !sommet_mem <> None)
+         then (
+            min_sommet := Some !sommet_mem;
+            min := d;)
+         else ())
+      w;
+      if !min_sommet = None
+      then 
+         Hashtbl.iter
+         (fun segment y ->
+            let (d, deviation) = y in
+            let (sommet1, sommet2) = segment in
+            let sommet_mem = ref sommet2 in
+            if (sommet1 = source2 || (sommet_mem:=sommet1; sommet2 = source2)) && !sommet_mem = target
+            then (
+               min_sommet := Some !sommet_mem;)
+            else ())
+         w;
+      let rec boucle_deviation sommet1 sommet2 =
+         (let (_, deviation) = Hashtbl.find w (sort(sommet1,sommet2)) in
+         match deviation with
+         | None -> [sommet2]
+         | Some dev -> (boucle_deviation sommet1 dev) @ boucle_deviation dev sommet2) in
+      match !min_sommet with
+      | None -> []
+      | Some sommet ->
+         let reponse = (boucle_deviation source2 sommet) in
+         if tree_at trees source2 <> None
+         then
+            Hashtbl.filter_map_inplace
+            (fun segment y ->
+               let (sommet1, sommet2) = segment in
+               let sommet_mem = ref sommet2 in
+               if (sommet1 = source2 || (sommet_mem:=sommet1; sommet2 = source2)) && tree_at trees !sommet_mem <> None
+               then None
+               else Some y
+            )
+            w;
+         reponse @ if sommet <> target then construction_path sommet else [] in
+   construction_path source
 
 
 (**
