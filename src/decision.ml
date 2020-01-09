@@ -140,6 +140,7 @@ type memory = {
     graph       : Graph.t;             (** Un graphe qui sert de carte.     *)
     objective   : objective;           (** L'objectif courant du robot.     *)
     targets     : Space.position list; (** Les points où il doit se rendre. *)
+    new_hell    : bool;
 }
 
 (**
@@ -153,6 +154,7 @@ let initial_memory = {
     graph       = Graph.empty;
     objective   = Initializing;
     targets     = [];
+    new_hell    =false;
 }
 
 (**
@@ -180,8 +182,8 @@ let discover visualize observation memory =
     | None -> seen_world
     | Some known_world -> World.extends_world known_world seen_world
   in
-  if visualize then Visualizer.show ~force:true known_world;
-  { memory with known_world = Some known_world }
+  if visualize then (Visualizer.show ~force:true known_world; Visualizer.show_graph memory.graph);
+  { memory with known_world = Some known_world; new_hell = memory.known_world <> Some known_world }
 
 
 (**
@@ -202,28 +204,43 @@ let visibility_graph observation memory =
    match memory.known_world with
    | Some known_world ->
       (let hell_polygons = hell known_world in
-      let hell_sommets = List.flatten (List.map (fun p->Space.vertices p) (hell known_world)) in
-      let sommets = observation.position :: observation.spaceship :: tree_positions observation.trees @ hell_sommets in
+      let hell_sommets = List.flatten (
+         List.map
+         (fun p->
+            let ((x_pos1, y_pos1),(x_pos2, y_pos2)) = bounding_box_of_polygon p in
+            Space.vertices (square (((x_pos2-.x_pos1)/.2.+.x_pos1),(((y_pos1-.y_pos2)/.2.+.y_pos2))) (x_pos2 -. x_pos1 +. 2.)())
+         )
+         (hell known_world)) in
+      let sommets = ref (observation.spaceship :: (tree_positions (List.filter (fun tree -> tree.branches>0) observation.trees)) @ hell_sommets) in
+      if List.exists ((=)observation.position) !sommets 
+      then ()
+      else sommets := (observation.position :: !sommets);
+      let sommets = !sommets in
       Graph.make sommets
       (List.flatten (List.map
       (fun sommet1 ->
+         let b = ref false in
          List.filter_map
          (fun sommet2 ->
             let segment = (sommet1, sommet2) in
-            if List.for_all
-            (fun hell_polygon ->
-               let i = ref 0 in
-               List.for_all
-               (fun hell_segment ->
-                  let (hell1, hell2) = hell_segment in
-                  not (segment_intersects segment hell_segment) || hell_segment = segment || if !i<2 then (i:=!i+1;hell1 = sommet1 || hell1 = sommet2 || hell2 = sommet1 || hell2 = sommet2) else false
+            if !b || sommet1 = sommet2
+            then (b:=true; None)
+            else
+               if List.for_all
+               (fun hell_polygon ->
+                  let i = ref 0 in
+                  List.for_all
+                  (fun hell_segment ->
+                     let (hell1, hell2) = hell_segment in
+                     not (segment_intersects segment hell_segment) || hell_segment = segment || if !i<2 then (i:=!i+1;hell1 = sommet1 || hell1 = sommet2 || hell2 = sommet1 || hell2 = sommet2) else false
+                  )
+                  (polygon_segments hell_polygon)
                )
-               (polygon_segments hell_polygon)
-            )
-            hell_polygons
-            then let Distance d = dist2 sommet1 sommet2 in
-            Some (sommet1, sommet2, d)
-            else None
+               hell_polygons
+               then let Distance d = dist2 sommet1 sommet2 in
+               Some (sommet1, sommet2, d)
+               else 
+                  Some (sommet1, sommet2, Float.infinity)
          )
          sommets
       )

@@ -85,6 +85,8 @@ type bounding_box = position * position
 (** L'ensemble des polygones de [s] est dans la boîte [bounding_box s]. *)
 val bounding_box : 'a t -> bounding_box
 
+val bounding_box_of_polygon : 'a polygon -> bounding_box
+
 (** On peut calculer la boîte englobante de toutes listes de positions.*)
 val bounding_box_of_positions : position list -> bounding_box
 
