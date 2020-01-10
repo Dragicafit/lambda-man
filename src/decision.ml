@@ -350,25 +350,29 @@ let shortest_path graph source target trees : path =
 
 *)
 let plan visualize observation memory =
-   Visualizer.show_graph memory.graph;
    (match memory.objective with
    | Initializing ->
-      let trees_with_branches = List.filter (fun tree -> tree.branches>0) observation.trees in
-      { memory with targets = (tree_positions trees_with_branches)@[observation.spaceship]; objective = GoingTo ([List.hd (tree_positions trees_with_branches)], [List.hd (tree_positions trees_with_branches)]) }
+      let path = shortest_path memory.graph observation.position observation.spaceship (List.filter (fun tree -> tree.branches>0) observation.trees) in
+      { memory with targets = path; objective = GoingTo (path, path) }
    | Chopping ->
       (match tree_at observation.trees observation.position with
       | Some tree ->
-         if tree.branches>0
+         if tree.branches > 0
          then memory
-         else { memory with targets = List.tl memory.targets; objective = GoingTo ([List.hd memory.targets], [List.hd memory.targets]) }
-      | None -> { memory with objective = GoingTo ([List.hd memory.targets], [List.hd memory.targets])  })
+         else { memory with targets = List.tl memory.targets; objective = GoingTo (List.tl memory.targets, List.tl memory.targets) }
+      | None -> { memory with objective = GoingTo (memory.targets, memory.targets)  })
    | GoingTo (path, path2) ->
       if close (List.hd path) observation.position 1.
       then 
-         (if List.length path <= 1
-         then { memory with objective = Chopping }
-         else { memory with objective = GoingTo (List.tl path, path2) })
-      else memory)
+         (match tree_at observation.trees (List.hd path) with
+         | Some _ -> { memory with objective = Chopping }
+         | None -> { memory with targets = List.tl path; objective = GoingTo (List.tl path, path2) })
+      else
+         if memory.new_hell
+         then 
+            let path = shortest_path memory.graph observation.position observation.spaceship (List.filter (fun tree -> tree.branches>0) observation.trees) in
+            { memory with targets = path; objective = GoingTo (path, path) }
+         else memory)
 
 (**
 
@@ -394,7 +398,7 @@ let next_action visualize observation memory =
    | GoingTo (path, _) -> (match path with 
       | pos::_ -> 
    let Distance d = dist2 pos observation.position in
-         Move (Space.angle_of_float (atan2 (y_ pos -. y_ observation.position) (x_ pos -. x_ observation.position)), if d>5. then observation.max_speed else Space.speed_of_float 0.1 ), memory
+         Move (Space.angle_of_float (atan2 (y_ pos -. y_ observation.position) (x_ pos -. x_ observation.position)), if d>5. || tree_at observation.trees pos = None then observation.max_speed else Space.speed_of_float 0.1 ), memory
       | [] -> Move (Space.angle_of_float 0., observation.max_speed), memory)
 
 (**
