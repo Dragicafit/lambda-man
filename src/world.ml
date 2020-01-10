@@ -217,6 +217,9 @@ let inside_hell world position =
 let hell world =
   Space.polygons world.space (( = ) Hell)
 
+let ground world =
+  Space.polygons world.space (function Ground _ -> true | _ -> false)
+
 let space_around (world : t) (x, y) =
   let s = world.visibility /. 2. in
   let b = ((x -. s, y -. s), (x +. s, y +. s)) in

@@ -47,7 +47,7 @@ let color_of_thing = function
   | World.Hell ->
      red
   | World.Ground f ->
-     let c = int_of_float (float_of_int 255 *. f) in
+     let c = int_of_float (45. *. f) in
      rgb c c c
 
 let display_polygon p =
@@ -216,7 +216,7 @@ let show_graph g =
   auto_synchronize false;
   let ns = Graph.nodes g in List.(
   iter show_node ns;
-  iter (fun n -> iter (fun (_, n', w) -> if w <> Float.infinity then show_edge n n') (Graph.out g n)) ns;
+  iter (fun n -> iter (fun (_, n', w) -> (**if w <> Float.infinity then*) show_edge n n') (Graph.out g n)) ns;
   synchronize ();
 )
 

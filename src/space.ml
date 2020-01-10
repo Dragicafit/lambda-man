@@ -112,6 +112,13 @@ let segment_intersects (p1, q1) (p2, q2) =
   | _, _, _, Colinear when inside_segment p2 q1 q2 -> true
   | _, _, _, _ -> false
 
+let intersection ((x1,y1),(x2,y2)) ((x3,y3),(x4,y4)) =
+  let denominateur = ((x1-.x2)*.(y3-.y4)-.(y1-.y2)*.(x3-.x4)) in 
+  (((x1*.y2-.y1*.x2)*.(x3-.x4)-.(x1-.x2)*.(x3*.y4-.y3*.x4))/.denominateur,((x1*.y2-.y1*.x2)*.(y3-.y4)-.(y1-.y2)*.(x3*.y4-.y3*.x4))/.denominateur)
+
+let milieu ((x1,y1),(x2,y2)) =
+  ((x1+.x2)/.2.,(y1+.y2)/.2.)
+
 
 let s1 = ((-1., -1.), (1., 1.))   and s2 = ((1., -1.), (-1., 1.))
 and s3 = ((-2., -2.), (-1., -1.)) and s4 = ((-2., -2.), (2., -2.))

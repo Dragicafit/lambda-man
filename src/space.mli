@@ -75,8 +75,14 @@ type segment = position * position
 (** On peut observer les segments d'un polygone. *)
 val polygon_segments : 'a polygon -> segment list
 
+val inside_segment : position -> position -> position -> bool
+
 (** [segment_intersects s1 s2] détermine si deux segments se croisent. *)
 val segment_intersects : segment -> segment -> bool
+
+val intersection : segment -> segment -> position
+
+val milieu : segment -> position
 
 (** Une boîte englobante est définie par son coin de coordonnées
     minimales et son coin de coordonnées maximales. *)
