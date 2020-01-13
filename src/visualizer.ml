@@ -216,7 +216,7 @@ let show_graph g =
   auto_synchronize false;
   let ns = Graph.nodes g in List.(
   iter show_node ns;
-  iter (fun n -> iter (fun (_, n', w) -> (**if w <> Float.infinity then*) show_edge n n') (Graph.out g n)) ns;
+  iter (fun n -> iter (fun (_, n', w) -> if w <> Float.infinity then show_edge n n') (Graph.out g n)) ns;
   synchronize ();
 )
 

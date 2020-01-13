@@ -136,11 +136,11 @@ let string_of_objective = function
 
 *)
 type memory = {
-    known_world : World.t option;      (** Le monde connu par le robot.     *)
-    graph       : Graph.t;             (** Un graphe qui sert de carte.     *)
-    objective   : objective;           (** L'objectif courant du robot.     *)
-    targets     : Space.position list; (** Les points où il doit se rendre. *)
-    new_hell    : bool;
+    known_world         : World.t option;      (** Le monde connu par le robot.     *)
+    graph               : Graph.t;             (** Un graphe qui sert de carte.     *)
+    objective           : objective;           (** L'objectif courant du robot.     *)
+    targets             : Space.position list; (** Les points où il doit se rendre. *)
+    is_new_known_world  : bool;
 }
 
 (**
@@ -150,11 +150,11 @@ type memory = {
 
 *)
 let initial_memory = {
-    known_world = None;
-    graph       = Graph.empty;
-    objective   = Initializing;
-    targets     = [];
-    new_hell    =false;
+    known_world         = None;
+    graph               = Graph.empty;
+    objective           = Initializing;
+    targets             = [];
+    is_new_known_world  = false;
 }
 
 (**
@@ -183,7 +183,7 @@ let discover visualize observation memory =
     | Some known_world -> World.extends_world known_world seen_world
   in
   if visualize then (Visualizer.show ~force:true known_world; Visualizer.show_graph memory.graph);
-  { memory with known_world = Some known_world; new_hell = memory.known_world <> Some known_world }
+  { memory with known_world = Some known_world; is_new_known_world = memory.known_world <> Some known_world }
 
 
 (**
@@ -199,27 +199,49 @@ let discover visualize observation memory =
    sont les extremités ne croisent pas une bouche de l'enfer.
 
 *)
-let visibility_graph observation memory =
-   {memory with graph = 
-   match memory.known_world with
-   | Some known_world ->
-      (let hell_polygons = hell known_world in
-      let ground_polygons = ground known_world in
-      let known_world_sommets = List.flatten (
-         List.map
-         (fun p->
-            let ((x_pos1, y_pos1),(x_pos2, y_pos2)) = bounding_box_of_polygon p in
-            let milieu = ((x_pos2-.x_pos1)/.2.+.x_pos1),(((y_pos1-.y_pos2)/.2.+.y_pos2)) in
-            Space.vertices (square milieu (x_pos2 -. x_pos1 +. if suffering known_world milieu > 1. then -2. else 2.)())
-         )
-         (Space.polygons known_world.space (fun _-> true))) in
-      let sommets = ref (observation.spaceship :: (tree_positions (List.filter (fun tree -> tree.branches>0) observation.trees)) @ known_world_sommets) in
-      if List.exists ((=)observation.position) !sommets 
-      then ()
-      else sommets := (observation.position :: !sommets);
-      let sommets = !sommets in
-      Graph.make sommets
-      (List.flatten (List.map
+
+let arbres_avec_branches observation =
+   List.filter (fun tree -> tree.branches>0) observation.trees
+
+let longe_frontiere world p = 
+   let ((x_pos1, y_pos1),(x_pos2, y_pos2)) = bounding_box_of_polygon p in
+   let milieu = ((x_pos2-.x_pos1)/.2.+.x_pos1),(((y_pos1-.y_pos2)/.2.+.y_pos2)) in
+   Space.vertices (square milieu (x_pos2 -. x_pos1 +. if suffering world milieu > 1. then -2. else 2.) ())
+
+let ajoute_position observation sommets =
+   if List.exists ((=)observation.position) sommets 
+   then sommets
+   else observation.position :: sommets
+
+let rec ordo_point world segment intersections =
+   let (sommet1, sommet2) = segment in
+   let dist = ref 0. in
+   try
+      List.iter
+      (fun inter ->
+         if inter <> sommet1 && inter <> sommet2 && inside_segment sommet1 inter sommet2
+         then (dist := ordo_point world (sommet1, inter) intersections +. ordo_point world (inter, sommet2) intersections; raise Exit)
+      )
+      intersections;
+      let Distance d = dist2 sommet1 sommet2 in
+      d /. suffering world (milieu segment)
+   with Exit -> !dist
+
+let passe_par_hell hell_polygons segment =
+   List.for_all
+   (fun hell_polygon ->
+      List.for_all
+      (fun hell_segment ->
+         not (segment_intersects segment hell_segment)
+      )
+      (polygon_segments hell_polygon)
+   )
+   hell_polygons
+
+let segments known_world sommets =
+   let hell_polygons = hell known_world in
+   let ground_polygons = ground known_world in   
+   List.flatten (List.map
       (fun sommet1 ->
          let b = ref false in
          List.filter_map
@@ -228,59 +250,39 @@ let visibility_graph observation memory =
             if !b || sommet1 = sommet2
             then (b:=true; None)
             else
-               if
-                  List.for_all
-                  (fun hell_polygon ->
-                     let i = ref 0 in
-                     List.for_all
-                     (fun hell_segment ->
-                        let (hell1, hell2) = hell_segment in
-                        not (segment_intersects segment hell_segment) || hell_segment = segment || if !i<2 then (i:=!i+1;hell1 = sommet1 || hell1 = sommet2 || hell2 = sommet1 || hell2 = sommet2) else false
-                     )
-                     (polygon_segments hell_polygon)
-                  )
-                  hell_polygons
+               if passe_par_hell hell_polygons segment
                then
-                  let intersections = ref [] in
-                  if
-                     List.for_all
-                     (fun ground_polygon ->
-                        let i = ref 0 in
-                        List.for_all
-                        (fun ground_segment ->
-                           let (ground1, ground2) = ground_segment in
-                           if segment_intersects segment ground_segment
-                           then (intersections := intersection segment ground_segment :: !intersections; ground_segment = segment || if !i<2 then (i:=!i+1;ground1 = sommet1 || ground1 = sommet2 || ground2 = sommet1 || ground2 = sommet2) else false)
-                           else true
-                        )
-                        (polygon_segments ground_polygon)
+                  (let intersections = ref [] in
+                  List.iter
+                  (fun ground_polygon ->
+                     List.iter
+                     (fun ground_segment ->
+                        if segment_intersects segment ground_segment
+                        then intersections := intersection segment ground_segment :: !intersections
                      )
-                     ground_polygons
-                  then
-                     let Distance d = dist2 sommet1 sommet2 in
-                     Some (sommet1, sommet2, d)
-                  else
-                     let rec ordo_point segment =
-                        let (sommet1, sommet2) = segment in
-                        let dist = ref 0. in
-                        try
-                           List.iter
-                           (fun inter ->
-                              if inter <> sommet1 && inter <> sommet2 && inside_segment sommet1 inter sommet2
-                              then (dist := ordo_point (sommet1, inter) +. ordo_point (inter, sommet2); raise Exit)
-                           )
-                           !intersections;
-                           let Distance d = dist2 sommet1 sommet2 in
-                           d /. suffering known_world (milieu segment)
-                        with Exit -> !dist in
-                     Some (sommet1, sommet2, ordo_point segment)
+                     (polygon_segments ground_polygon)
+                  )
+                  ground_polygons;
+                  Some (sommet1, sommet2, ordo_point known_world segment !intersections))
                else
                   Some (sommet1, sommet2, Float.infinity)
          )
          sommets
       )
       sommets
-      )))
+      )
+
+let visibility_graph observation memory =
+   {memory with graph = 
+   match memory.known_world with
+   | Some known_world ->
+      (let known_world_sommets = List.flatten (
+         List.map
+         (fun p -> longe_frontiere known_world p)
+         (Space.polygons known_world.space (fun _-> true))) in
+      let sommets = observation.spaceship :: (tree_positions (arbres_avec_branches observation)) @ known_world_sommets in
+      let sommets = ajoute_position observation sommets in
+      Graph.make sommets (segments known_world sommets))
    | None -> Graph.empty}
 
 
@@ -290,82 +292,100 @@ let visibility_graph observation memory =
    aller d'une source à une cible dans le graphe.
 
 *)
-let shortest_path graph source target trees : path =
-   let sort (a,b) = if a<b then (a,b) else (b,a) in
-   let n = List.length (Graph.edges graph)/2 in
-   let w = Hashtbl.create n in
-   List.iter
-   (fun u ->
-      let (i,j,_) = u in
-      Hashtbl.replace w (sort (i,j)) (let (_,_,poids) = u in (poids, None))
-   )
-   (Graph.edges graph);
+let sort a b = if a<b then (a,b) else (b,a)
+
+let floyd_Warshall graph w =
    List.iter
    (fun k ->
       List.iter
       (fun segment ->
          let (i,j,_) = segment in
-         if Hashtbl.find_opt w (sort (i,k)) <> None && Hashtbl.find_opt w (sort (k,j)) <> None
+         if Hashtbl.find_opt w (sort i k) <> None && Hashtbl.find_opt w (sort k j) <> None
          then
-            (let (ij,_) = (Hashtbl.find w (sort (i,j))) in
-            let (ik,_) = Hashtbl.find w (sort (i,k)) in
-            let (kj,_) = Hashtbl.find w (sort (k,j)) in
+            (let (ij,_) = Hashtbl.find w (sort i j) in
+            let (ik,_) = Hashtbl.find w (sort i k) in
+            let (kj,_) = Hashtbl.find w (sort k j) in
             if ik+.kj<ij
-            then Hashtbl.replace w (sort (i,j)) (ik+.kj, Some k)
+            then Hashtbl.replace w (sort i j) (ik+.kj, Some k)
             else ())
          else ()
       )
       (Graph.edges graph)
    )
-   (Graph.nodes graph);
-   let rec construction_path source2 =
-      let min = ref Float.infinity in
-      let min_sommet = ref None in
-      Hashtbl.iter
+   (Graph.nodes graph)
+
+let recherche_arbre_le_plus_proche w trees source =
+   let min_sommet = ref None in
+   let min = ref Float.infinity in
+   Hashtbl.iter
+   (fun segment y ->
+      let (d, deviation) = y in
+      let (sommet1, sommet2) = segment in
+      let sommet_mem = ref sommet2 in
+      if (sommet1 = source || (sommet_mem:=sommet1; sommet2 = source)) && !min > d && (tree_at trees !sommet_mem <> None)
+      then (
+         min_sommet := Some !sommet_mem;
+         min := d;)
+      else ())
+   w;
+   !min_sommet
+
+let recherche_vaisseau w target source =
+   let min_sommet = ref None in
+   Hashtbl.iter
+   (fun segment y ->
+      let (d, deviation) = y in
+      let (sommet1, sommet2) = segment in
+      let sommet_mem = ref sommet2 in
+      if (sommet1 = source || (sommet_mem:=sommet1; sommet2 = source)) && !sommet_mem = target
+      then (
+         min_sommet := Some !sommet_mem;)
+      else ())
+   w;
+   !min_sommet
+
+let rec boucle_deviation w sommet1 sommet2 =
+   let (_, deviation) = Hashtbl.find w (sort sommet1 sommet2) in
+   match deviation with
+   | None -> [sommet2]
+   | Some dev -> (boucle_deviation w sommet1 dev) @ boucle_deviation w dev sommet2
+
+let supprime_courant w trees source2 =
+   if tree_at trees source2 <> None(** || source2 = source && source <> target*)
+   then
+      Hashtbl.filter_map_inplace
       (fun segment y ->
-         let (d, deviation) = y in
          let (sommet1, sommet2) = segment in
          let sommet_mem = ref sommet2 in
-         if (sommet1 = source2 || (sommet_mem:=sommet1; sommet2 = source2)) && !min > d && (tree_at trees !sommet_mem <> None)
-         then (
-            min_sommet := Some !sommet_mem;
-            min := d;)
-         else ())
-      w;
-      if !min_sommet = None
-      then 
-         Hashtbl.iter
-         (fun segment y ->
-            let (d, deviation) = y in
-            let (sommet1, sommet2) = segment in
-            let sommet_mem = ref sommet2 in
-            if (sommet1 = source2 || (sommet_mem:=sommet1; sommet2 = source2)) && !sommet_mem = target
-            then (
-               min_sommet := Some !sommet_mem;)
-            else ())
-         w;
-      let rec boucle_deviation sommet1 sommet2 =
-         (let (_, deviation) = Hashtbl.find w (sort(sommet1,sommet2)) in
-         match deviation with
-         | None -> [sommet2]
-         | Some dev -> (boucle_deviation sommet1 dev) @ boucle_deviation dev sommet2) in
-      match !min_sommet with
-      | None -> []
-      | Some sommet ->
-         let reponse = (boucle_deviation source2 sommet) in
-         if tree_at trees source2 <> None(** || source2 = source && source <> target*)
-         then
-            Hashtbl.filter_map_inplace
-            (fun segment y ->
-               let (sommet1, sommet2) = segment in
-               let sommet_mem = ref sommet2 in
-               if (sommet1 = source2 || (sommet_mem:=sommet1; sommet2 = source2)) && (tree_at trees !sommet_mem <> None (** || source2 = source && source <> target*))
-               then None
-               else Some y
-            )
-            w;
-         reponse @ if sommet <> target then construction_path sommet else [] in
-   construction_path source
+         if (sommet1 = source2 || (sommet_mem:=sommet1; sommet2 = source2)) && (tree_at trees !sommet_mem <> None (** || source2 = source && source <> target*))
+         then None
+         else Some y
+      )
+      w
+   
+let rec construction_path  w target trees source2 =
+   let min_sommet = recherche_arbre_le_plus_proche w trees source2 in
+   let min_sommet = (match min_sommet with
+   | Some _ -> min_sommet
+   | None -> recherche_vaisseau w target source2) in
+   match min_sommet with
+   | None -> []
+   | Some min_sommet ->
+      (let reponse = (boucle_deviation w source2 min_sommet) in
+      supprime_courant w trees source2;
+      reponse @ if min_sommet <> target then construction_path w target trees min_sommet else [])
+
+let shortest_path graph source target trees : path =
+   let n = List.length (Graph.edges graph)/2 in
+   let w = Hashtbl.create n in
+   List.iter
+   (fun u ->
+      let (i,j,_) = u in
+      Hashtbl.replace w (sort i j) (let (_,_,poids) = u in (poids, None))
+   )
+   (Graph.edges graph);
+   floyd_Warshall graph w;
+   construction_path w target trees source
 
 
 (**
@@ -385,10 +405,11 @@ let shortest_path graph source target trees : path =
 
 *)
 let plan visualize observation memory =
+   let calcul_path () =
+      let path = shortest_path memory.graph observation.position observation.spaceship (arbres_avec_branches observation) in
+      { memory with targets = path; objective = GoingTo (path, path) } in
    (match memory.objective with
-   | Initializing ->
-      let path = shortest_path memory.graph observation.position observation.spaceship (List.filter (fun tree -> tree.branches>0) observation.trees) in
-      { memory with targets = path; objective = GoingTo (path, path) }
+   | Initializing -> calcul_path()
    | Chopping ->
       (match tree_at observation.trees observation.position with
       | Some tree ->
@@ -403,10 +424,8 @@ let plan visualize observation memory =
          | Some _ -> { memory with objective = Chopping }
          | None -> { memory with targets = List.tl path; objective = GoingTo (List.tl path, path2) })
       else
-         if memory.new_hell
-         then 
-            let path = shortest_path memory.graph observation.position observation.spaceship (List.filter (fun tree -> tree.branches>0) observation.trees) in
-            { memory with targets = path; objective = GoingTo (path, path) }
+         if memory.is_new_known_world
+         then calcul_path()
          else memory)
 
 (**
@@ -426,14 +445,21 @@ let plan visualize observation memory =
    la vitesse et la direction du robot sont correctes.
 
 *)
+
+let angle_of_segment ((x1, y1), (x2, y2)) =
+   Space.angle_of_float (atan2 (y1 -. y2) (x1 -. x2))
+
 let next_action visualize observation memory =
    match memory.objective with
    | Initializing -> Move (Space.angle_of_float 0., observation.max_speed), memory
    | Chopping -> ChopTree, memory
    | GoingTo (path, _) -> (match path with 
       | pos::_ -> 
-   let Distance d = dist2 pos observation.position in
-         Move (Space.angle_of_float (atan2 (y_ pos -. y_ observation.position) (x_ pos -. x_ observation.position)), if d>5. (**|| tree_at observation.trees pos = None*) then observation.max_speed else Space.speed_of_float 0.1 ), memory
+         let Distance d = dist2 pos observation.position in
+         Move
+            (angle_of_segment (pos, observation.position),
+            if d>5. (**|| tree_at observation.trees pos = None*) then observation.max_speed else Space.speed_of_float 0.1),
+            memory
       | [] -> Move (Space.angle_of_float 0., observation.max_speed), memory)
 
 (**
